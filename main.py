@@ -19,7 +19,7 @@ GOOGLE_SHEET_API = "https://script.google.com/macros/s/AKfycbz6rR15tvAfn-4uP_h47
 # ⚠️ 2. 請填入垃圾車機器人的 LINE 官方帳號 ID（包含 @ 符號，例如 @123abcde）
 LINE_BOT_BASIC_ID = "@507fiwcw"
 # ⚠️ 3. 請填入這個垃圾車機器人的 Render 公開網址（結尾不要加斜線）
-RENDER_BASE_URL = "https://onrender.com"
+RENDER_BASE_URL = "https://taiwan-trash-truck-bot.onrender.com"
 # ⚠️ 4. 可填入您的 Notion 居家清潔／除臭垃圾袋／分類桶推薦頁面網址（未填自動隱藏）
 NOTION_HOME_SHOP_URL = ""
 
