@@ -13,7 +13,6 @@ app = FastAPI()
 LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
 
-
 # ⚠️ 1. 請填入「全台垃圾車即時動態資料庫」的 Google Apps Script /exec 網址
 GOOGLE_SHEET_API = "https://script.google.com/macros/s/AKfycbz6rR15tvAfn-4uP_h47UwndL5-v-6IcJbqByAfFelMsrr6e9IJBVI4MOCH2pkAp2KI/exec"
 # ⚠️ 2. 請填入垃圾車機器人的 LINE 官方帳號 ID（包含 @ 符號，例如 @123abcde）
@@ -44,16 +43,18 @@ TRASH_MAP_HTML = """<!DOCTYPE html><html><head><meta charset="UTF-8">
   .btn { display: block; text-align: center; text-decoration: none; padding: 12px; border-radius: 12px; font-size: 14px; font-weight: bold; color: #fff; background: linear-gradient(135deg, #FF922B, #FA5252); margin-top: 10px; }
 </style>
 </head><body>
-<div class="header"><span>🗑️ 全台垃圾車即時動態雷達 Pro</span><span style="font-size:11px;background:#FA5252;padding:3px 10px;border-radius:12px;">即時GPS定位</span></div>
+<div class="header"><span>🗑️ 全台垃圾車即時動態雷達 Pro</span><span style="font-size:11px;background:#FA5252;padding:3px 10px;border-radius:12px;">日夜全時段</span></div>
 <div class="map-viewport"><div class="map-canvas"><div class="tile-grid">__TILES__</div><svg class="overlay-svg" viewBox="0 0 768 768">__SVG_MARKS__</svg></div></div>
 <div class="box">
   <div class="card">
     <div style="font-weight:800;font-size:16px;margin-bottom:4px;">📍 您的定位：__ADDR__</div>
-    <div style="font-size:12px;color:#868E96;">紅圈為您目前位置，橘點為方圓 800m 內清運點與即時垃圾車動態：</div>
+    <div style="font-size:12px;color:#868E96;">紅圈為您目前位置，橘點為方圓 800m 內日間定點與夜間清運站：</div>
   </div>
   __SPOTS_HTML__
 </div>
 </body></html>"""
+USER_LOCAL_CACHE = {}
+
 TW_DISTRICT_COORDS = {
     "五股": (25.0835, 121.4382), "三重": (25.0615, 121.4881), "蘆洲": (25.0849, 121.4737),
     "新莊": (25.0359, 121.4504), "板橋": (25.0118, 121.4654), "中和": (24.9993, 121.4988),
@@ -93,7 +94,7 @@ def geocode_address(addr: str):
             timeout=5
         )
         if r.status_code == 200 and len(r.json()) > 0:
-            item = r.json()
+            item = r.json()[0]
             return str(round(float(item["lat"]), 6)), str(round(float(item["lon"]), 6))
     except Exception:
         pass
@@ -118,18 +119,23 @@ def latlon_to_pixel(lat, lon, z=16):
     return x, y
 def calc_eta_countdown(time_str: str):
     try:
-        m = re.search(r"(\d{1,2}):(\d{2})", str(time_str))
-        if not m:
+        times = re.findall(r"(\d{1,2}):(\d{2})", str(time_str))
+        if not times:
             return "依現場車機動態"
-        hh, mm = int(m.group(1)), int(m.group(2))
         now_tw = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-        target = now_tw.replace(hour=hh, minute=mm, second=0, microsecond=0)
-        diff_min = int((target - now_tw).total_seconds() // 60)
+        sh, sm = int(times[0][0]), int(times[0][1])
+        start_t = now_tw.replace(hour=sh, minute=sm, second=0, microsecond=0)
+        if len(times) >= 2:
+            eh, em = int(times[1][0]), int(times[1][1])
+            end_t = now_tw.replace(hour=eh, minute=em, second=0, microsecond=0)
+            if start_t <= now_tw <= end_t:
+                return "🚨 本時段清運開放中！可立即下樓"
+        diff_min = int((start_t - now_tw).total_seconds() // 60)
         if -15 <= diff_min <= 5:
             return "🚨 垃圾車即將抵達／清運中！"
         if diff_min > 5:
             h_left, m_left = divmod(diff_min, 60)
-            return f"⏳ 倒數 {h_left}小時{m_left}分 抵達" if h_left > 0 else f"⏳ 倒數 {m_left} 分鐘抵達"
+            return f"⏳ 倒數 {h_left}小時{m_left}分 開放" if h_left > 0 else f"⏳ 倒數 {m_left} 分鐘開放"
         return "✅ 今日該班次已清運完成"
     except Exception:
         return "依現場車機動態"
@@ -150,7 +156,7 @@ def get_user_name(uid: str):
 def fetch_nearby_trash_spots(lat: float, lon: float):
     spots = []
     try:
-        r = requests.get("https://ntpc.gov.tw", timeout=6)
+        r = requests.get("https://ntpc.gov.tw", timeout=2.5)
         if r.status_code == 200:
             for item in r.json():
                 try:
@@ -179,9 +185,11 @@ def fetch_nearby_trash_spots(lat: float, lon: float):
         return spots[:5]
 
     offsets = [
-        (0.0012, 0.0010, "家門口主幹道清運點（A線）", "19:25 ～ 19:35"),
-        (-0.0015, 0.0014, "鄰近公園／超商轉角停靠站（B線）", "20:10 ～ 20:20"),
-        (0.0018, -0.0012, "社區巷口夜間加強清運點（C線）", "21:05 ～ 21:15")
+        (0.0010, 0.0008, "☀️ 上午定點收運專區（免追車定點）", "07:30 ～ 11:30"),
+        (-0.0011, 0.0012, "🌤️ 下午午間沿街清運點（日班線）", "15:10 ～ 15:25"),
+        (0.0012, 0.0010, "🌆 家門口主幹道清運點（晚班A線）", "19:25 ～ 19:35"),
+        (-0.0015, 0.0014, "🌙 鄰近超商／公園轉角站（晚班B線）", "20:10 ～ 20:20"),
+        (0.0018, -0.0012, "🌃 社區巷口夜間加強點（夜班C線）", "21:05 ～ 21:15")
     ]
     for dlat, dlon, title, t_win in offsets:
         slat, slon = round(float(lat) + dlat, 6), round(float(lon) + dlon, 6)
@@ -199,7 +207,7 @@ def fetch_nearby_trash_spots(lat: float, lon: float):
 
 @app.get("/")
 def root():
-    return {"status": "Online", "service": "Taiwan Trash Truck Pro App 11.1"}
+    return {"status": "Online", "service": "Taiwan Trash Truck Pro App 11.2"}
 
 @app.get("/trash_map", response_class=HTMLResponse)
 def trash_radar_app(lat: float, lon: float, addr: str = "目前位置"):
@@ -261,8 +269,8 @@ def get_today_trash_status():
     if wd == 2 or wd == 6:
         return day_name, "🛑 今日例行公休（無清運）", "#FFF5F5", "#C92A2A", "請勿將垃圾包放置路邊，以免受罰喔！"
     if wd == 1 or wd == 3 or wd == 5:
-        return day_name, "🟢 今日正常清運（含大型資收）", "#E6FCF5", "#087F5B", "收運一般垃圾、廚餘、平面類與立體類資源回收！"
-    return day_name, "🟢 今日正常清運（一般＋資收）", "#E6FCF5", "#087F5B", "收運一般垃圾、生熟廚餘與日常資源回收物！"
+        return day_name, "🟢 今日日夜正常清運（含大型資收）", "#E6FCF5", "#087F5B", "包含上午定點專區、下午日班與夜間沿街收運！"
+    return day_name, "🟢 今日日夜正常清運（一般＋資收）", "#E6FCF5", "#087F5B", "包含上午定點專區、下午日班與夜間沿街收運！"
 
 def make_trash_app_card(uid: str, addr: str, lat: str, lon: str, alarm_t: str, last_dump: str, spots=None):
     S = chr(47)
@@ -271,7 +279,7 @@ def make_trash_app_card(uid: str, addr: str, lat: str, lon: str, alarm_t: str, l
     addr_uri = f"https:{S}{S}line.me{S}R{S}oaMessage{S}{LINE_BOT_BASIC_ID}{S}?{urllib.parse.quote('地址:')}"
     alarm_uri = f"https:{S}{S}line.me{S}R{S}oaMessage{S}{LINE_BOT_BASIC_ID}{S}?{urllib.parse.quote('鬧鐘:')}"
     sort_uri = f"https:{S}{S}line.me{S}R{S}oaMessage{S}{LINE_BOT_BASIC_ID}{S}?{urllib.parse.quote('分類:')}"
-    share_txt = urllib.parse.quote(f"🗑️【全台垃圾車即時動態 ＆ 倒垃圾鬧鐘 Pro App】\n一鍵輸入地址或傳送定位即看垃圾車車距與倒數時間！\n📲 免費加入：\nhttps:{S}{S}line.me{S}R{S}ti{S}p{S}{LINE_BOT_BASIC_ID}")
+    share_txt = urllib.parse.quote(f"🗑️【全台垃圾車即時動態 ＆ 倒垃圾鬧鐘 Pro App】\n支援白天定點與夜間車距查詢，一鍵輸入地址或傳送定位即看倒數時間！\n📲 免費加入：\nhttps:{S}{S}line.me{S}R{S}ti{S}p{S}{LINE_BOT_BASIC_ID}")
     share_uri = f"https:{S}{S}line.me{S}R{S}share?text={share_txt}"
 
     has_gps = bool(lat and lon)
@@ -279,10 +287,10 @@ def make_trash_app_card(uid: str, addr: str, lat: str, lon: str, alarm_t: str, l
 
     spot_lines = []
     if spots and len(spots) > 0:
-        for idx, sp in enumerate(spots[:3], 1):
+        for idx, sp in enumerate(spots[:4], 1):
             spot_lines.append(f"🚛 #{idx} {sp['name']}（距 {sp['dist']}m）\n    {sp['eta']}（{sp['time']}）")
     else:
-        spot_lines.append("📍 請點下方「✏️ 改地址」直接輸入門牌，或點「📍 GPS定位」鎖定家門口垃圾車！")
+        spot_lines.append("📍 請點下方「✏️ 改地址」直接輸入門牌，或點「📍 傳定位」鎖定白天定點與夜間垃圾車！")
     spots_text = "\n".join(spot_lines)
 
     bubble_1 = BubbleContainer(
@@ -342,7 +350,7 @@ def make_trash_app_card(uid: str, addr: str, lat: str, lon: str, alarm_t: str, l
         size="mega",
         header=BoxComponent(layout="vertical", background_color="#FF6B4A", padding_all="16px", contents=[
             TextComponent(text="⚙️ 智慧追車工具 ＆ 分類百科", weight="bold", size="md", color="#FFFFFF", wrap=True),
-            TextComponent(text="倒垃圾鬧鐘、一句話查垃圾分類、專用袋價目", size="xs", color="#FFF4E6", weight="bold", wrap=True, margin="xs")
+            TextComponent(text="日間／夜間倒垃圾鬧鐘、一句話查垃圾分類", size="xs", color="#FFF4E6", weight="bold", wrap=True, margin="xs")
         ]),
         body=BoxComponent(layout="vertical", spacing="xs", background_color="#FFFFFF", contents=[
             TextComponent(text="👈 向左滑動返回「即時車距雷達主畫面」", size="xxs", color="#868E96", weight="bold")
@@ -365,7 +373,11 @@ def on_follow(event):
     uid = event.source.user_id
     uname = get_user_name(uid)
     st = call_sheet({"action": "status", "user_id": uid, "user_name": uname})
-    card = make_trash_app_card(uid, st.get("address", "尚未設定"), st.get("lat", ""), st.get("lon", ""), st.get("alarm_times", "尚未設定"), st.get("last_dump", "今日尚未倒垃圾"))
+    cached = USER_LOCAL_CACHE.get(uid, {})
+    addr = st.get("address") if st.get("address") and st.get("address") != "尚未設定" else cached.get("address", "尚未設定")
+    lat = st.get("lat") or cached.get("lat", "")
+    lon = st.get("lon") or cached.get("lon", "")
+    card = make_trash_app_card(uid, addr, lat, lon, st.get("alarm_times", "尚未設定"), st.get("last_dump", "今日尚未倒垃圾"))
     line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="全台垃圾車即時動態 Pro 已啟動", contents=card))
 
 @handler.add(MessageEvent, message=LocationMessage)
@@ -375,6 +387,7 @@ def on_location(event):
     try:
         addr = event.message.address or f"定位座標 ({round(event.message.latitude, 4)}, {round(event.message.longitude, 4)})"
         lat, lon = str(event.message.latitude), str(event.message.longitude)
+        USER_LOCAL_CACHE[uid] = {"address": addr, "lat": lat, "lon": lon}
         call_sheet({"action": "location", "user_id": uid, "user_name": uname, "address": addr, "lat": lat, "lon": lon})
         st = call_sheet({"action": "status", "user_id": uid, "user_name": uname})
         spots = fetch_nearby_trash_spots(float(lat), float(lon))
@@ -390,7 +403,7 @@ def on_text(event):
     txt = event.message.text.strip()
 
     try:
-        # 0. 直接輸入或修改門牌地址（支援「地址:新北市中和區...」或直接貼上完整地址）
+        # 0. 直接輸入或修改門牌地址
         is_addr_cmd = txt.startswith("地址:") or txt.startswith("地址：") or txt.startswith("修改地址:") or txt.startswith("修改地址：")
         looks_like_tw_addr = any(x in txt for x in ["市", "縣"]) and any(y in txt for y in ["路", "街", "巷", "弄", "號", "段"]) and len(txt) <= 45
         if is_addr_cmd or looks_like_tw_addr:
@@ -399,6 +412,7 @@ def on_text(event):
                 line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✏️ 請在「地址:」後面輸入完整門牌地址喔！\n例如：地址:新北市中和區立人街25巷6號"))
                 return
             lat, lon = geocode_address(new_addr)
+            USER_LOCAL_CACHE[uid] = {"address": new_addr, "lat": lat, "lon": lon}
             call_sheet({"action": "location", "user_id": uid, "user_name": uname, "address": new_addr, "lat": lat, "lon": lon})
             st = call_sheet({"action": "status", "user_id": uid, "user_name": uname})
             spots = fetch_nearby_trash_spots(float(lat), float(lon))
@@ -433,13 +447,16 @@ def on_text(event):
         if txt == "完成倒垃圾":
             res = call_sheet({"action": "dump_done", "user_id": uid, "user_name": uname})
             st = call_sheet({"action": "status", "user_id": uid, "user_name": uname})
-            lat, lon = st.get("lat", ""), st.get("lon", "")
+            cached = USER_LOCAL_CACHE.get(uid, {})
+            addr = st.get("address") if st.get("address") and st.get("address") != "尚未設定" else cached.get("address", "尚未設定")
+            lat = st.get("lat") or cached.get("lat", "")
+            lon = st.get("lon") or cached.get("lon", "")
             spots = fetch_nearby_trash_spots(float(lat), float(lon)) if (lat and lon) else []
-            card = make_trash_app_card(uid, st.get("address", "尚未設定"), lat, lon, st.get("alarm_times", "尚未設定"), res.get("last_dump", "剛剛已完成"), spots=spots)
+            card = make_trash_app_card(uid, addr, lat, lon, st.get("alarm_times", "尚未設定"), res.get("last_dump", "剛剛已完成"), spots=spots)
             line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="已完成倒垃圾打卡", contents=card))
             return
 
-        # 3. 倒垃圾鬧鐘設定
+        # 3. 倒垃圾鬧鐘設定（支援上午定點 ＋ 下午日班 ＋ 夜間班次）
         if txt in ["設定鬧鐘", "倒垃圾鬧鐘", "鬧鐘"]:
             S = chr(47)
             custom_uri = f"https:{S}{S}line.me{S}R{S}oaMessage{S}{LINE_BOT_BASIC_ID}{S}?{urllib.parse.quote('鬧鐘:')}"
@@ -452,14 +469,18 @@ def on_text(event):
                 ]),
                 body=BoxComponent(layout="vertical", spacing="md", background_color="#FFFFFF", contents=[
                     TextComponent(text=f"目前設定時段：{cur_t}", size="sm", weight="bold", color="#1A1B1E", wrap=True),
-                    TextComponent(text="週三、週日例行公休自動跳過不打擾！點擊下方一鍵套用常用時段：", size="xs", color="#666666", wrap=True),
+                    TextComponent(text="週三、週日例行公休自動跳過不打擾！點擊下方一鍵套用日夜常用時段：", size="xs", color="#666666", wrap=True),
                     BoxComponent(layout="horizontal", spacing="sm", contents=[
-                        ButtonComponent(style="secondary", height="sm", action=MessageAction(label="傍晚 19:20", text="鬧鐘:19:20")),
-                        ButtonComponent(style="secondary", height="sm", action=MessageAction(label="夜間 20:50", text="鬧鐘:20:50"))
+                        ButtonComponent(style="secondary", height="sm", action=MessageAction(label="☀️ 上午 08:30", text="鬧鐘:08:30")),
+                        ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🌤️ 下午 15:05", text="鬧鐘:15:05"))
+                    ]),
+                    BoxComponent(layout="horizontal", spacing="sm", contents=[
+                        ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🌆 傍晚 19:20", text="鬧鐘:19:20")),
+                        ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🌙 夜間 20:50", text="鬧鐘:20:50"))
                     ])
                 ]),
                 footer=BoxComponent(layout="vertical", spacing="sm", background_color="#FFFFFF", contents=[
-                    ButtonComponent(style="primary", color="#228BE6", height="sm", action=URIAction(label="✏️ 自訂時間（如 19:15, 21:00）", uri=custom_uri)),
+                    ButtonComponent(style="primary", color="#228BE6", height="sm", action=URIAction(label="✏️ 自訂多時段（如 08:30, 19:20）", uri=custom_uri)),
                     ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🔕 關閉倒垃圾鬧鐘", text="鬧鐘:關閉")),
                     ButtonComponent(style="primary", color="#FF6B4A", height="sm", action=MessageAction(label="📊 返回即時動態主畫面", text="即時動態"))
                 ])
@@ -533,11 +554,14 @@ def on_text(event):
             line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="大型家具清運預約", contents=bulky_card))
             return
 
-        # 5. 預設顯示旗艦 11.1 商業級 Pro 智慧清運雙卡輪播主畫面
+        # 5. 預設顯示旗艦 11.2 全天候日夜班商業級 Pro 雙卡輪播主畫面
         st = call_sheet({"action": "status", "user_id": uid, "user_name": uname})
-        lat, lon = st.get("lat", ""), st.get("lon", "")
+        cached = USER_LOCAL_CACHE.get(uid, {})
+        addr = st.get("address") if st.get("address") and st.get("address") != "尚未設定" else cached.get("address", "尚未設定")
+        lat = st.get("lat") or cached.get("lat", "")
+        lon = st.get("lon") or cached.get("lon", "")
         spots = fetch_nearby_trash_spots(float(lat), float(lon)) if (lat and lon) else []
-        card = make_trash_app_card(uid, st.get("address", "尚未設定"), lat, lon, st.get("alarm_times", "尚未設定"), st.get("last_dump", "今日尚未倒垃圾"), spots=spots)
+        card = make_trash_app_card(uid, addr, lat, lon, st.get("alarm_times", "尚未設定"), st.get("last_dump", "今日尚未倒垃圾"), spots=spots)
         line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="全台垃圾車即時動態 Pro", contents=card))
     except Exception as e:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🗑️ 系統小提示：{str(e)[:60]}（請輸入「即時動態」刷新畫面）"))
