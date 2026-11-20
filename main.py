@@ -28,27 +28,27 @@ handler = WebhookHandler(LINE_CHANNEL_SECRET)
 TRASH_MAP_HTML = """<!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
-<title>🗑️ 全台垃圾車即時動態雷達地圖 Pro</title>
+<title>🗑️ 全台垃圾車即時動態雷達 Pro</title>
 <style>
-  body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; background: #F4F5F7; color: #1A1B1E; }
-  .header { background: #1A1B1E; color: #fff; padding: 14px 16px; font-weight: bold; font-size: 15px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
-  .map-viewport { width: 100%; height: 290px; overflow: hidden; position: relative; background: #E9ECEF; border-bottom: 1px solid #DEE2E6; }
+  body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; background: #111318; color: #F8F9FA; }
+  .header { background: #1A1B1E; color: #fff; padding: 14px 16px; font-weight: bold; font-size: 15px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; border-bottom: 1px solid #2C2E33; }
+  .map-viewport { width: 100%; height: 290px; overflow: hidden; position: relative; background: #1A1B1E; border-bottom: 1px solid #2C2E33; }
   .map-canvas { width: 768px; height: 768px; position: absolute; left: 50%; top: 50%; transform: translate(__OFFSET_X__px, __OFFSET_Y__px); }
   .tile-grid { display: grid; grid-template-columns: repeat(3, 256px); grid-template-rows: repeat(3, 256px); width: 768px; height: 768px; }
   .tile-grid img { width: 256px; height: 256px; display: block; }
   .overlay-svg { position: absolute; top: 0; left: 0; width: 768px; height: 768px; pointer-events: none; }
   .box { padding: 14px; max-width: 560px; margin: 0 auto; }
-  .card { background: #fff; border-radius: 20px; padding: 16px; margin-bottom: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.06); }
-  .spot { border-left: 4px solid #FA5252; padding-left: 12px; }
-  .btn { display: block; text-align: center; text-decoration: none; padding: 12px; border-radius: 12px; font-size: 14px; font-weight: bold; color: #fff; background: linear-gradient(135deg, #FF922B, #FA5252); margin-top: 10px; }
+  .card { background: #1A1B1E; border: 1px solid #2C2E33; border-radius: 20px; padding: 16px; margin-bottom: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.35); }
+  .spot { border-left: 4px solid #FF922B; padding-left: 12px; }
+  .btn { display: block; text-align: center; text-decoration: none; padding: 13px; border-radius: 12px; font-size: 14px; font-weight: bold; color: #fff; background: linear-gradient(135deg, #FF922B, #FA5252); margin-top: 12px; }
 </style>
 </head><body>
-<div class="header"><span>🗑️ 全台垃圾車即時動態雷達 Pro</span><span style="font-size:11px;background:#FA5252;padding:3px 10px;border-radius:12px;">日夜全時段</span></div>
+<div class="header"><span>🗑️ 全台垃圾車雷達 Pro</span><span style="font-size:11px;background:#FA5252;padding:4px 10px;border-radius:12px;">日夜全時段</span></div>
 <div class="map-viewport"><div class="map-canvas"><div class="tile-grid">__TILES__</div><svg class="overlay-svg" viewBox="0 0 768 768">__SVG_MARKS__</svg></div></div>
 <div class="box">
   <div class="card">
-    <div style="font-weight:800;font-size:16px;margin-bottom:4px;">📍 您的定位：__ADDR__</div>
-    <div style="font-size:12px;color:#868E96;">紅圈為您目前位置，橘點為方圓 800m 內日間定點與夜間清運站：</div>
+    <div style="font-weight:800;font-size:16px;color:#FFA94D;margin-bottom:4px;">📍 您的定位：__ADDR__</div>
+    <div style="font-size:12px;color:#ADB5BD;">紅圈為您目前位置，橘點為方圓 800m 內日間定點與夜間清運站：</div>
   </div>
   __SPOTS_HTML__
 </div>
@@ -94,7 +94,7 @@ def geocode_address(addr: str):
             timeout=5
         )
         if r.status_code == 200 and len(r.json()) > 0:
-            item = r.json()[0]
+            item = r.json()
             return str(round(float(item["lat"]), 6)), str(round(float(item["lon"]), 6))
     except Exception:
         pass
@@ -123,10 +123,10 @@ def calc_eta_countdown(time_str: str):
         if not times:
             return "依現場車機動態"
         now_tw = datetime.datetime.utcnow() + datetime.timedelta(hours=8)
-        sh, sm = int(times[0][0]), int(times[0][1])
+        sh, sm = int(times), int(times)
         start_t = now_tw.replace(hour=sh, minute=sm, second=0, microsecond=0)
         if len(times) >= 2:
-            eh, em = int(times[1][0]), int(times[1][1])
+            eh, em = int(times), int(times)
             end_t = now_tw.replace(hour=eh, minute=em, second=0, microsecond=0)
             if start_t <= now_tw <= end_t:
                 return "🚨 本時段清運開放中！可立即下樓"
@@ -207,7 +207,7 @@ def fetch_nearby_trash_spots(lat: float, lon: float):
 
 @app.get("/")
 def root():
-    return {"status": "Online", "service": "Taiwan Trash Truck Pro App 11.2"}
+    return {"status": "Online", "service": "Taiwan Trash Truck Pro App 12.0"}
 
 @app.get("/trash_map", response_class=HTMLResponse)
 def trash_radar_app(lat: float, lon: float, addr: str = "目前位置"):
@@ -231,7 +231,7 @@ def trash_radar_app(lat: float, lon: float, addr: str = "目前位置"):
     radius_px = round(800.0 / meters_per_px, 1)
 
     svg_marks = [
-        f'<circle cx="{user_px}" cy="{user_py}" r="{radius_px}" fill="#FA5252" fill-opacity="0.12" stroke="#FA5252" stroke-width="2" stroke-dasharray="6,4"/>',
+        f'<circle cx="{user_px}" cy="{user_py}" r="{radius_px}" fill="#FA5252" fill-opacity="0.16" stroke="#FA5252" stroke-width="2" stroke-dasharray="6,4"/>',
         f'<circle cx="{user_px}" cy="{user_py}" r="10" fill="#FA5252" stroke="#fff" stroke-width="3"/>'
     ]
     spots = fetch_nearby_trash_spots(lat, lon)
@@ -246,9 +246,9 @@ def trash_radar_app(lat: float, lon: float, addr: str = "目前位置"):
         nav_u = f"https:{S}{S}{host}{S}?daddr={sp['lat']},{sp['lon']}&dirflg=w"
         spots_cards.append(f"""
         <div class="card"><div class="spot">
-          <div style="font-weight:800;font-size:15px;color:#1A1B1E;">🚛 #{idx} {sp['name']}（距 {sp['dist']}m）</div>
-          <div style="font-size:13px;color:#FA5252;font-weight:bold;margin:4px 0;">⏰ {sp['time']} ｜ {sp['eta']}</div>
-          <div style="font-size:12px;color:#666;">♻️ {sp['recycle']}</div>
+          <div style="font-weight:800;font-size:15px;color:#FFFFFF;">🚛 #{idx} {sp['name']}（距 {sp['dist']}m）</div>
+          <div style="font-size:13px;color:#FFA94D;font-weight:bold;margin:6px 0;">⏰ {sp['time']} ｜ {sp['eta']}</div>
+          <div style="font-size:12px;color:#ADB5BD;">♻️ {sp['recycle']}</div>
           <a class="btn" href="{nav_u}">🧭 步行導航至此清運點</a>
         </div></div>""")
 
@@ -287,59 +287,63 @@ def make_trash_app_card(uid: str, addr: str, lat: str, lon: str, alarm_t: str, l
 
     spot_lines = []
     if spots and len(spots) > 0:
-        for idx, sp in enumerate(spots[:4], 1):
-            spot_lines.append(f"🚛 #{idx} {sp['name']}（距 {sp['dist']}m）\n    {sp['eta']}（{sp['time']}）")
+        ordered = sorted(spots, key=lambda x: str(x.get("time", "")))
+        for idx, sp in enumerate(ordered[:4], 1):
+            spot_lines.append(f"🚛 #{idx} {sp['name']}（{sp['dist']}m）\n    {sp['eta']}｜{sp['time']}")
     else:
-        spot_lines.append("📍 請點下方「✏️ 改地址」直接輸入門牌，或點「📍 傳定位」鎖定白天定點與夜間垃圾車！")
+        spot_lines.append("📍 點下方「✏️ 改地址」或「📍 傳送定位」，立即顯示白天定點與夜間垃圾車時刻！")
     spots_text = "\n".join(spot_lines)
 
     bubble_1 = BubbleContainer(
         size="mega",
-        header=BoxComponent(layout="vertical", background_color="#1A1B1E", padding_all="16px", contents=[
-            TextComponent(text=f"🗑️ 全台垃圾車即時動態 · {day_name}", weight="bold", size="md", color="#FFFFFF", wrap=True),
-            TextComponent(text=f"📍 {addr}"[:38], size="xs", color="#FFA94D", weight="bold", wrap=True, margin="xs")
+        header=BoxComponent(layout="vertical", background_color="#111318", padding_all="16px", contents=[
+            TextComponent(text=f"🗑️ 全台垃圾車雷達 Pro · {day_name}", weight="bold", size="md", color="#FFFFFF", wrap=True),
+            TextComponent(text=f"📍 {addr}"[:40], size="xs", color="#FF922B", weight="bold", wrap=True, margin="xs")
         ]),
         body=BoxComponent(layout="vertical", spacing="sm", background_color="#FFFFFF", contents=[
             BoxComponent(layout="vertical", background_color=bg_col, corner_radius="12px", padding_all="10px", contents=[
                 TextComponent(text=status_title, size="xs", color=fg_col, weight="bold", wrap=True),
                 TextComponent(text=status_desc, size="xxs", color=fg_col, wrap=True, margin="xs")
             ]),
-            BoxComponent(layout="horizontal", spacing="xs", contents=[
-                BoxComponent(layout="vertical", background_color="#FFF4E6", corner_radius="12px", padding_all="8px", align_items="center", contents=[
-                    TextComponent(text="⏰ 倒垃圾鬧鐘", size="xxs", color="#F76707", weight="bold"),
-                    TextComponent(text=alarm_t if alarm_t != "尚未設定" else "未設定", size="xs", color="#D9480F", weight="bold")
+            BoxComponent(layout="horizontal", spacing="sm", contents=[
+                BoxComponent(layout="vertical", background_color="#1A1B1E", corner_radius="12px", padding_all="10px", align_items="center", contents=[
+                    TextComponent(text="⏰ 倒垃圾鬧鐘", size="xxs", color="#FFA94D", weight="bold"),
+                    TextComponent(text=alarm_t if alarm_t != "尚未設定" else "尚未設定", size="xs", color="#FFFFFF", weight="bold", margin="xs")
                 ]),
-                BoxComponent(layout="vertical", background_color="#E7F5FF", corner_radius="12px", padding_all="8px", align_items="center", contents=[
-                    TextComponent(text="✅ 最近倒垃圾", size="xxs", color="#1C7ED6", weight="bold"),
-                    TextComponent(text=last_dump[:12], size="xs", color="#1864AB", weight="bold")
+                BoxComponent(layout="vertical", background_color="#1A1B1E", corner_radius="12px", padding_all="10px", align_items="center", contents=[
+                    TextComponent(text="✅ 最近倒垃圾", size="xxs", color="#63E6BE", weight="bold"),
+                    TextComponent(text=last_dump[:12], size="xs", color="#FFFFFF", weight="bold", margin="xs")
                 ])
             ]),
-            BoxComponent(layout="vertical", background_color="#F8F9FA", corner_radius="14px", padding_all="12px", contents=[
-                TextComponent(text=spots_text, size="xs", color="#212529", wrap=True)
+            BoxComponent(layout="vertical", background_color="#F4F5F7", corner_radius="14px", padding_all="12px", contents=[
+                TextComponent(text=spots_text, size="xs", color="#1A1B1E", wrap=True)
             ])
         ]),
         footer=BoxComponent(layout="vertical", spacing="sm", background_color="#FFFFFF", contents=[
             ButtonComponent(style="primary", color="#FA5252", height="sm", action=URIAction(label="🗺️ 開啟即時車距雷達地圖 App" if has_gps else "📍 傳送 GPS 定位查垃圾車", uri=radar_uri)),
             BoxComponent(layout="horizontal", spacing="sm", contents=[
-                ButtonComponent(style="primary", color="#12B886", height="sm", action=MessageAction(label="✅ 倒垃圾打卡", text="完成倒垃圾")),
-                ButtonComponent(style="secondary", height="sm", action=URIAction(label="✏️ 改地址", uri=addr_uri)),
-                ButtonComponent(style="secondary", height="sm", action=URIAction(label="📍 傳定位", uri=loc_uri))
+                ButtonComponent(style="primary", color="#12B886", height="sm", action=MessageAction(label="✅ 已倒垃圾", text="完成倒垃圾")),
+                ButtonComponent(style="secondary", height="sm", action=URIAction(label="✏️ 改地址", uri=addr_uri))
+            ]),
+            BoxComponent(layout="horizontal", spacing="sm", contents=[
+                ButtonComponent(style="secondary", height="sm", action=URIAction(label="📍 傳送定位", uri=loc_uri)),
+                ButtonComponent(style="primary", color="#FF922B", height="sm", action=MessageAction(label="⏰ 設鬧鐘", text="設定鬧鐘"))
             ])
         ])
     )
 
     tools_btns = [
         BoxComponent(layout="horizontal", spacing="sm", contents=[
-            ButtonComponent(style="primary", color="#FF922B", height="sm", action=MessageAction(label="⏰ 設倒垃圾鬧鐘", text="設定鬧鐘")),
-            ButtonComponent(style="secondary", height="sm", action=URIAction(label="✏️ 自訂鬧鐘", uri=alarm_uri))
+            ButtonComponent(style="primary", color="#FF922B", height="sm", action=MessageAction(label="⏰ 鬧鐘設定", text="設定鬧鐘")),
+            ButtonComponent(style="secondary", height="sm", action=URIAction(label="✏️ 自訂時間", uri=alarm_uri))
         ]),
         BoxComponent(layout="horizontal", spacing="sm", contents=[
-            ButtonComponent(style="primary", color="#7048E8", height="sm", action=URIAction(label="🔍 查物品怎麼丟", uri=sort_uri)),
-            ButtonComponent(style="secondary", height="sm", action=MessageAction(label="♻️ 回收分類表", text="回收分類"))
+            ButtonComponent(style="primary", color="#7048E8", height="sm", action=URIAction(label="🔍 查怎麼丟", uri=sort_uri)),
+            ButtonComponent(style="secondary", height="sm", action=MessageAction(label="♻️ 回收分類", text="回收分類"))
         ]),
         BoxComponent(layout="horizontal", spacing="sm", contents=[
-            ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🛍️ 專用垃圾袋價目", text="專用垃圾袋")),
-            ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🛋️ 大型家具清運", text="大型家具"))
+            ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🛍️ 專用垃圾袋", text="專用垃圾袋")),
+            ButtonComponent(style="secondary", height="sm", action=MessageAction(label="🛋️ 大型家具", text="大型家具"))
         ]),
         ButtonComponent(style="primary", color="#228BE6", height="sm", action=URIAction(label="📤 分享給家人／室友一起追車", uri=share_uri))
     ]
@@ -348,12 +352,12 @@ def make_trash_app_card(uid: str, addr: str, lat: str, lon: str, alarm_t: str, l
 
     bubble_2 = BubbleContainer(
         size="mega",
-        header=BoxComponent(layout="vertical", background_color="#FF6B4A", padding_all="16px", contents=[
-            TextComponent(text="⚙️ 智慧追車工具 ＆ 分類百科", weight="bold", size="md", color="#FFFFFF", wrap=True),
-            TextComponent(text="日間／夜間倒垃圾鬧鐘、一句話查垃圾分類", size="xs", color="#FFF4E6", weight="bold", wrap=True, margin="xs")
+        header=BoxComponent(layout="vertical", background_color="#111318", padding_all="16px", contents=[
+            TextComponent(text="⚡ 智慧追車工具 ＆ 分類百科", weight="bold", size="md", color="#FFFFFF", wrap=True),
+            TextComponent(text="日夜鬧鐘、一句話查垃圾分類、專用袋價目", size="xs", color="#63E6BE", weight="bold", wrap=True, margin="xs")
         ]),
         body=BoxComponent(layout="vertical", spacing="xs", background_color="#FFFFFF", contents=[
-            TextComponent(text="👈 向左滑動返回「即時車距雷達主畫面」", size="xxs", color="#868E96", weight="bold")
+            TextComponent(text="👈 向左滑動返回「即時車距雷達儀表板」", size="xxs", color="#868E96", weight="bold")
         ]),
         footer=BoxComponent(layout="vertical", spacing="sm", background_color="#FFFFFF", contents=tools_btns)
     )
@@ -378,7 +382,7 @@ def on_follow(event):
     lat = st.get("lat") or cached.get("lat", "")
     lon = st.get("lon") or cached.get("lon", "")
     card = make_trash_app_card(uid, addr, lat, lon, st.get("alarm_times", "尚未設定"), st.get("last_dump", "今日尚未倒垃圾"))
-    line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="全台垃圾車即時動態 Pro 已啟動", contents=card))
+    line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="全台垃圾車雷達 Pro 已啟動", contents=card))
 
 @handler.add(MessageEvent, message=LocationMessage)
 def on_location(event):
@@ -409,7 +413,7 @@ def on_text(event):
         if is_addr_cmd or looks_like_tw_addr:
             new_addr = txt.split(":", 1)[-1].split("：", 1)[-1].strip() if is_addr_cmd else txt
             if not new_addr:
-                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✏️ 請在「地址:」後面輸入完整門牌地址喔！\n例如：地址:新北市中和區立人街25巷6號"))
+                line_bot_api.reply_message(event.reply_token, TextSendMessage(text="✏️ 請在「地址:」後面輸入完整門牌地址喔！\n例如：地址:新北市五股區成泰路一段100號"))
                 return
             lat, lon = geocode_address(new_addr)
             USER_LOCAL_CACHE[uid] = {"address": new_addr, "lat": lat, "lon": lon}
@@ -434,7 +438,7 @@ def on_text(event):
                         TextComponent(text=k_tip, size="xs", color="#1A1B1E", wrap=True)
                     ]),
                     footer=BoxComponent(layout="vertical", background_color="#FFFFFF", contents=[
-                        ButtonComponent(style="primary", color="#1A1B1E", height="sm", action=MessageAction(label="📊 返回即時動態主畫面", text="即時動態"))
+                        ButtonComponent(style="primary", color="#111318", height="sm", action=MessageAction(label="📊 返回即時動態主畫面", text="即時動態"))
                     ])
                 )
                 line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text=f"{k_name} 垃圾分類查詢", contents=sort_card))
@@ -464,7 +468,7 @@ def on_text(event):
             cur_t = st.get("alarm_times", "尚未設定")
             alarm_card = BubbleContainer(
                 size="mega",
-                header=BoxComponent(layout="vertical", background_color="#1A1B1E", padding_all="14px", contents=[
+                header=BoxComponent(layout="vertical", background_color="#111318", padding_all="14px", contents=[
                     TextComponent(text="⏰ 每日倒垃圾自動推播鬧鐘", weight="bold", size="md", color="#FFFFFF", wrap=True)
                 ]),
                 body=BoxComponent(layout="vertical", spacing="md", background_color="#FFFFFF", contents=[
@@ -509,7 +513,7 @@ def on_text(event):
                     TextComponent(text="💡 提示：直接輸入物品名稱（如「行動電源」、「安全帽」）可單獨查詢喔！", size="xxs", color="#868E96", wrap=True)
                 ]),
                 footer=BoxComponent(layout="vertical", background_color="#FFFFFF", contents=[
-                    ButtonComponent(style="primary", color="#1A1B1E", height="sm", action=MessageAction(label="📊 返回即時動態主畫面", text="即時動態"))
+                    ButtonComponent(style="primary", color="#111318", height="sm", action=MessageAction(label="📊 返回即時動態主畫面", text="即時動態"))
                 ])
             )
             line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="資源回收分類速查表", contents=rec_card))
@@ -530,7 +534,7 @@ def on_text(event):
                     TextComponent(text="💡 雙北專用垃圾袋與環保兩用袋可於新北市、台北市互相通用！", size="xxs", color="#1864AB", weight="bold", wrap=True, margin="sm")
                 ]),
                 footer=BoxComponent(layout="vertical", background_color="#FFFFFF", contents=[
-                    ButtonComponent(style="primary", color="#1A1B1E", height="sm", action=MessageAction(label="📊 返回即時動態主畫面", text="即時動態"))
+                    ButtonComponent(style="primary", color="#111318", height="sm", action=MessageAction(label="📊 返回即時動態主畫面", text="即時動態"))
                 ])
             )
             line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="雙北專用垃圾袋價目表", contents=bag_card))
@@ -539,7 +543,7 @@ def on_text(event):
         if txt in ["大型家具", "大型清運", "家具清運"]:
             bulky_card = BubbleContainer(
                 size="mega",
-                header=BoxComponent(layout="vertical", background_color="#1A1B1E", padding_all="14px", contents=[
+                header=BoxComponent(layout="vertical", background_color="#111318", padding_all="14px", contents=[
                     TextComponent(text="🛋️ 大型廢棄家具免費清運預約", weight="bold", size="md", color="#FFFFFF", wrap=True)
                 ]),
                 body=BoxComponent(layout="vertical", spacing="sm", background_color="#FFFFFF", contents=[
@@ -554,7 +558,7 @@ def on_text(event):
             line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="大型家具清運預約", contents=bulky_card))
             return
 
-        # 5. 預設顯示旗艦 11.2 全天候日夜班商業級 Pro 雙卡輪播主畫面
+        # 5. 預設顯示旗艦 12.0 暗夜流光賽博酷炫 Pro 雙卡輪播主畫面
         st = call_sheet({"action": "status", "user_id": uid, "user_name": uname})
         cached = USER_LOCAL_CACHE.get(uid, {})
         addr = st.get("address") if st.get("address") and st.get("address") != "尚未設定" else cached.get("address", "尚未設定")
@@ -562,6 +566,6 @@ def on_text(event):
         lon = st.get("lon") or cached.get("lon", "")
         spots = fetch_nearby_trash_spots(float(lat), float(lon)) if (lat and lon) else []
         card = make_trash_app_card(uid, addr, lat, lon, st.get("alarm_times", "尚未設定"), st.get("last_dump", "今日尚未倒垃圾"), spots=spots)
-        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="全台垃圾車即時動態 Pro", contents=card))
+        line_bot_api.reply_message(event.reply_token, FlexSendMessage(alt_text="全台垃圾車雷達 Pro", contents=card))
     except Exception as e:
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=f"🗑️ 系統小提示：{str(e)[:60]}（請輸入「即時動態」刷新畫面）"))
